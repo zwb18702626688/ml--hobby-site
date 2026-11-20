@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AimLab 极速网格射击 (Gridshot Mini)</title>
+  <style>
+    /* 全局重置与赛博/电竞暗色风格 */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    :root {
+      --bg-color: #0b0e14;
+      --arena-bg: #111722;
+      --arena-border: #1e293b;
+      --primary-cyan: #00f0ff;
+      --primary-cyan-glow: rgba(0, 240, 255, 0.4);
+      --accent-purple: #a855f7;
+      --danger-red: #ef4444;
+      --text-main: #f8fafc;
+      --text-dim: #94a3b8;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* 顶部导航与数据仪表盘 */
+    .header {
+      width: 100%;
+      max-width: 920px;
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title-group h1 {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #00f0ff, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .title-group p {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .dashboard {
+      display: flex;
+      gap: 1.5rem;
+      background: rgba(17, 23, 34, 0.8);
+      border: 1px solid var(--arena-border);
+      padding: 0.5rem 1.25rem;
+      border-radius: 12px;
+      backdrop-filter: blur(8px);
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-val {
+      font-size: 1.35rem;
+      font-weight: 800;
+      font-family: "Courier New", Courier, monospace;
+    }
+
+    .stat-val.cyan { color: var(--primary-cyan); }
+    .stat-val.purple { color: #c084fc; }
+    .stat-val.yellow { color: #facc15; }
+
+    /* 射击靶场区域 (Arena) */
+    .arena-container {
+      position: relative;
+      width: 90vw;
+      max-width: 920px;
+      height: 68vh;
+      min-height: 460px;
+      background-color: var(--arena-bg);
+      border: 2px solid var(--arena-border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 0 100px rgba(0, 240, 255, 0.03);
+      cursor: crosshair;
+    }
+
+    /* 网格背景效果 */
+    .arena-container::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+
+    /* 空枪闪烁惩罚 */
+    .arena-container.miss-flash {
+      animation: missFlash 0.15s ease-out;
+    }
+
+    @keyframes missFlash {
+      0% { box-shadow: inset 0 0 40px rgba(239, 68, 68, 0.5); }
+      100% { box-shadow: inset 0 0 100px rgba(0, 240, 255, 0.03); }
+    }
+
+    /* 小球靶子样式 */
+    .target-ball {
+      position: absolute;
+      border-radius: 50%;
+      cursor: crosshair;
+      transform: translate(-50%, -50%) scale(0);
+      background: radial-gradient(circle at 35% 35%, #ffffff 0%, #00f0ff 40%, #0284c7 90%);
+      box-shadow: 0 0 20px var(--primary-cyan-glow), inset 0 0 8px rgba(255, 255, 255, 0.6);
+      transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      animation: spawnAnim 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+
+    @keyframes spawnAnim {
+      0% { transform: translate(-50%, -50%) scale(0); }
+      100% { transform: translate(-50%, -50%) scale(1); }
+    }
+
+    /* 击中小球消失特效 */
+    .target-ball.hit {
+      animation: hitAnim 0.12s ease-out forwards;
+      pointer-events: none;
+    }
+
+    @keyframes hitAnim {
+      0% { transform: translate(-50%, -50%) scale(1); opacity: 1; filter: brightness(2); }
+      100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+    }
+
+    /* 击中粒子飞溅 */
+    .hit-particle {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      background: var(--primary-cyan);
+      box-shadow: 0 0 6px var(--primary-cyan);
+    }
+
+    /* 悬浮计分漂浮字 (+100) */
+    .score-popup {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      color: #38bdf8;
+      font-size: 1.1rem;
+      font-weight: 800;
+      pointer-events: none;
+      animation: popupFloat 0.5s ease-out forwards;
+    }
+
+    @keyframes popupFloat {
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -90px) scale(1.2); }
+    }
+
+    /* 覆盖层：开始界面与结算界面 */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 14, 20, 0.88);
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .overlay.hidden {
+      display: none;
+    }
+
+    .modal-card {
+      background: #151c28;
+      border: 1px solid #2d3748;
+      border-radius: 18px;
+      padding: 2.2rem 2.8rem;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 240, 255, 0.1);
+    }
+
+    .modal-title {
+      font-size: 1.8rem;
+      font-weight: 800;
+      margin-bottom: 0.6rem;
+      color: var(--primary-cyan);
+    }
+
+    .modal-subtitle {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      margin-bottom: 1.8rem;
+      line-height: 1.5;
+    }
+
+    /* 选项组（时长、靶子大小） */
+    .options-row {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 1.8rem;
+    }
+
+    .opt-btn {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .opt-btn.active {
+      background: rgba(0, 240, 255, 0.15);
+      color: var(--primary-cyan);
+      border-color: var(--primary-cyan);
+    }
+
+    .start-btn {
+      background: linear-gradient(135deg, #00f0ff, #0284c7);
+      color: #0b0e14;
+      font-size: 1.15rem;
+      font-weight: 800;
+      border: none;
+      padding: 0.85rem 2.5rem;
+      border-radius: 9999px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0, 240, 255, 0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .start-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 28px rgba(0, 240, 255, 0.6);
+    }
+
+    /* 结算结果统计网格 */
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.8rem;
+    }
+
+    .result-item {
+      background: #1e293b;
+      padding: 0.9rem;
+      border-radius: 10px;
+      border: 1px solid #334155;
+    }
+
+    .result-label {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-bottom: 0.2rem;
+    }
+
+    .result-val {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #ffffff;
+      font-family: monospace;
+    }
+
+    /* 底部提示与静音按钮 */
+    .footer-bar {
+      margin-top: 0.8rem;
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    .toggle-sound-btn {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部状态栏 -->
+  <header class="header">
+    <div class="title-group">
+      <h1>AIMLAB GRIDSHOT</h1>
+      <p>终极网格射击 · 极速反应练枪</p>
+    </div>
+
+    <div class="dashboard">
+      <div class="stat-item">
+        <div class="stat-label">倒计时</div>
+        <div class="stat-val cyan" id="timeDisplay">30.0s</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">当前得分</div>
+        <div class="stat-val yellow" id="scoreDisplay">0</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">准确率</div>
+        <div class="stat-val purple" id="accDisplay">100%</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 射击靶场 -->
+  <main class="arena-container" id="arena">
+    <!-- 开始游戏覆盖层 -->
+    <div class="overlay" id="startModal">
+      <div class="modal-card">
+        <h2 class="modal-title">网格射击 (Gridshot)</h2>
+        <p class="modal-subtitle">
+          场上将始终维持 <strong>3 个目标球</strong>。<br>
+          击中小球立刻在其他位置生成新球，测试你的跟枪与极速点击反应！
+        </p>
+
+        <!-- 时长选择 -->
+        <div class="options-row">
+          <button class="opt-btn active" data-time="30">30 秒速射</button>
+          <button class="opt-btn" data-time="60">60 秒耐力</button>
+        </div>
+
+        <button class="start-btn" id="startBtn">开始挑战</button>
+      </div>
+    </div>
+
+    <!-- 游戏结束结算层 -->
+    <div class="overlay hidden" id="endModal">
+      <div class="modal-card">
+        <h2 class="modal-title" style="color: #facc15;">挑战完成!</h2>
+        <p class="modal-subtitle">本次测试最终数据统计报告</p>
+
+        <div class="result-grid">
+          <div class="result-item">
+            <div class="result-label">最终得分</div>
+            <div class="result-val" id="resScore" style="color:#00f0ff;">0</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">射击准确率</div>
+            <div class="result-val" id="resAcc" style="color:#a855f7;">0%</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">击中目标数</div>
+            <div class="result-val" id="resHits">0</div>
+          </div>
+          <div class="result-item">
+            <div class="result-label">平均击速 (TPS)</div>
+            <div class="result-val" id="resSpeed">0.0</div>
+          </div>
+        </div>
+
+        <button class="start-btn" id="restartBtn">再来一局</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- 底部快捷功能 -->
+  <footer class="footer-bar">
+    <span>💡 规则：点击小球得分，点空扣减命中率并触发红光提示</span>
+    <button class="toggle-sound-btn" id="soundToggle">音效: 开 🔊</button>
+  </footer>
+
+  <script>
+    /* ========================================================
+       AimLab GridShot 核心逻辑脚本
+       纯原生 JS，零外部包，集成 Web Audio API 自主合成音效
+    ======================================================== */
+
+    // DOM 元素引用
+    const arena = document.getElementById('arena');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const accDisplay = document.getElementById('accDisplay');
+    const startModal = document.getElementById('startModal');
+    const endModal = document.getElementById('endModal');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const soundToggle = document.getElementById('soundToggle');
+
+    // 游戏配置与状态
+    const BALL_COUNT = 3;           // 场上永远同时存在3个球 (标准 Aimlab Gridshot 规格)
+    let ballRadius = 38;            // 小球半径 (px)
+    let totalGameTime = 30;         // 默认总时长 (秒)
+    let remainingTime = 30;
+    let isPlaying = false;
+    let timerInterval = null;
+    let soundEnabled = true;
+
+    // 统计指标
+    let score = 0;
+    let hits = 0;
+    let totalClicks = 0;
+    let activeBalls = [];
+
+    // Web Audio API 合成音效系统（无外部音频文件，离线自给自足）
+    let audioCtx = null;
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // 播放击中音效 (脆爽高频 Pop 滴音)
+    function playHitSound() {
+      if (!soundEnabled || !audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        // 频率瞬降模拟击打清脆感 (880Hz -> 440Hz)
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(320, audioCtx.currentTime + 0.08);
+
+        gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.08);
+      } catch (e) {}
+    }
+
+    // 播放空枪/失误音效 (低沉顿击音)
+    function playMissSound() {
+      if (!soundEnabled || !audioCtx) return;
+      try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(160, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.1);
+
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+      } catch (e) {}
+    }
+
+    // 播放游戏结束提示音
+    function playEndSound() {
+      if (!soundEnabled || !audioCtx) return;
+      try {
+        const notes = [440, 554, 659, 880];
+        notes.forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.09);
+          gain.gain.setValueAtTime(0.2, audioCtx.currentTime + idx * 0.09);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + idx * 0.09 + 0.18);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(audioCtx.currentTime + idx * 0.09);
+          osc.stop(audioCtx.currentTime + idx * 0.09 + 0.18);
+        });
+      } catch (e) {}
+    }
+
+    // 更新 HUD 界面
+    function updateHUD() {
+      timeDisplay.textContent = Math.max(0, remainingTime).toFixed(1) + 's';
+      scoreDisplay.textContent = score;
+      const acc = totalClicks === 0 ? 100 : Math.round((hits / totalClicks) * 100);
+      accDisplay.textContent = acc + '%';
+    }
+
+    // 检查两个圆是否碰撞重叠
+    function isOverlapping(x, y, list, minDistance) {
+      for (const item of list) {
+        const dx = x - item.x;
+        const dy = y - item.y;
+        if (Math.hypot(dx, dy) < minDistance) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 生成随机小球坐标（确保不互相重叠且在视野安全区内）
+    function getSafeRandomCoord() {
+      const arenaWidth = arena.clientWidth;
+      const arenaHeight = arena.clientHeight;
+      const margin = ballRadius + 30; // 边距留白
+      const minDistance = ballRadius * 2.5;
+
+      let maxTries = 100;
+      let x, y;
+      do {
+        x = margin + Math.random() * (arenaWidth - margin * 2);
+        y = margin + Math.random() * (arenaHeight - margin * 2);
+        maxTries--;
+      } while (isOverlapping(x, y, activeBalls, minDistance) && maxTries > 0);
+
+      return { x, y };
+    }
+
+    // 创建并生成一个新靶球
+    function spawnBall() {
+      if (!isPlaying) return;
+
+      const { x, y } = getSafeRandomCoord();
+      const ball = document.createElement('div');
+      ball.className = 'target-ball';
+      ball.style.width = (ballRadius * 2) + 'px';
+      ball.style.height = (ballRadius * 2) + 'px';
+      ball.style.left = x + 'px';
+      ball.style.top = y + 'px';
+
+      const ballObj = { el: ball, x, y };
+      activeBalls.push(ballObj);
+
+      // 小球点击事件 (击中)
+      ball.addEventListener('pointerdown', (e) => {
+        e.stopPropagation(); // 阻止冒泡到 arena 避免计为空枪
+        if (!isPlaying) return;
+        handleHit(ballObj, e.clientX, e.clientY);
+      });
+
+      arena.appendChild(ball);
+    }
+
+    // 击中处理
+    function handleHit(ballObj, clientX, clientY) {
+      hits++;
+      totalClicks++;
+      score += 100;
+      playHitSound();
+
+      // 从激活列表中移除
+      const index = activeBalls.indexOf(ballObj);
+      if (index !== -1) {
+        activeBalls.splice(index, 1);
+      }
+
+      // 击碎动效
+      ballObj.el.classList.add('hit');
+      setTimeout(() => {
+        if (ballObj.el.parentElement) {
+          ballObj.el.remove();
+        }
+      }, 120);
+
+      // 产生飞溅粒子与飘字
+      createHitParticles(ballObj.x, ballObj.y);
+      showScorePopup(ballObj.x, ballObj.y, '+100');
+
+      updateHUD();
+
+      // Gridshot 核心机制：立即补齐 1 个新球保持场上始终有 3 个球
+      spawnBall();
+    }
+
+    // 产生击中微光粒子
+    function createHitParticles(x, y) {
+      const particleCount = 8;
+      for (let i = 0; i < particleCount; i++) {
+        const p = document.createElement('div');
+        p.className = 'hit-particle';
+        const size = 4 + Math.random() * 4;
+        p.style.width = size + 'px';
+        p.style.height = size + 'px';
+        p.style.left = x + 'px';
+        p.style.top = y + 'px';
+
+        const angle = (Math.PI * 2 / particleCount) * i + Math.random() * 0.5;
+        const velocity = 35 + Math.random() * 45;
+        const tx = Math.cos(angle) * velocity;
+        const ty = Math.sin(angle) * velocity;
+
+        p.animate([
+          { transform: 'translate(-50%, -50%)', opacity: 1 },
+          { transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`, opacity: 0 }
+        ], {
+          duration: 350,
+          easing: 'ease-out'
+        }).onfinish = () => p.remove();
+
+        arena.appendChild(p);
+      }
+    }
+
+    // 飘字提示
+    function showScorePopup(x, y, text) {
+      const popup = document.createElement('div');
+      popup.className = 'score-popup';
+      popup.textContent = text;
+      popup.style.left = x + 'px';
+      popup.style.top = y + 'px';
+      arena.appendChild(popup);
+      setTimeout(() => popup.remove(), 500);
+    }
+
+    // 射击场地点击（点空/脱靶事件）
+    arena.addEventListener('pointerdown', (e) => {
+      // 如果点在小球或弹窗上不触发
+      if (!isPlaying || e.target.classList.contains('target-ball')) return;
+
+      totalClicks++;
+      playMissSound();
+
+      // 空枪红光闪烁
+      arena.classList.remove('miss-flash');
+      void arena.offsetWidth; // 触发 reflow
+      arena.classList.add('miss-flash');
+
+      updateHUD();
+    });
+
+    // 开始游戏
+    function startGame() {
+      initAudio();
+      isPlaying = true;
+      score = 0;
+      hits = 0;
+      totalClicks = 0;
+      remainingTime = totalGameTime;
+      activeBalls = [];
+
+      // 清理残留小球
+      const existingBalls = arena.querySelectorAll('.target-ball, .hit-particle, .score-popup');
+      existingBalls.forEach(b => b.remove());
+
+      startModal.classList.add('hidden');
+      endModal.classList.add('hidden');
+      updateHUD();
+
+      // 立即生成 3 个小球
+      for (let i = 0; i < BALL_COUNT; i++) {
+        spawnBall();
+      }
+
+      // 启动高精度计时器
+      const startTime = performance.now();
+      timerInterval = setInterval(() => {
+        const elapsed = (performance.now() - startTime) / 1000;
+        remainingTime = totalGameTime - elapsed;
+
+        if (remainingTime <= 0) {
+          endGame();
+        } else {
+          updateHUD();
+        }
+      }, 50);
+    }
+
+    // 结束游戏并显示结算统计
+    function endGame() {
+      isPlaying = false;
+      clearInterval(timerInterval);
+      remainingTime = 0;
+      updateHUD();
+      playEndSound();
+
+      // 清除小球
+      const existingBalls = arena.querySelectorAll('.target-ball');
+      existingBalls.forEach(b => b.remove());
+      activeBalls = [];
+
+      // 计算最终指标
+      const finalAcc = totalClicks === 0 ? 0 : Math.round((hits / totalClicks) * 100);
+      const tps = (hits / totalGameTime).toFixed(2);
+
+      document.getElementById('resScore').textContent = score;
+      document.getElementById('resAcc').textContent = finalAcc + '%';
+      document.getElementById('resHits').textContent = hits;
+      document.getElementById('resSpeed').textContent = tps + ' 次/秒';
+
+      endModal.classList.remove('hidden');
+    }
+
+    // 时长选择按钮切换
+    document.querySelectorAll('[data-time]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('[data-time]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        totalGameTime = parseInt(btn.getAttribute('data-time'), 10);
+        remainingTime = totalGameTime;
+        updateHUD();
+      });
+    });
+
+    // 音效开关切换
+    soundToggle.addEventListener('click', () => {
+      soundEnabled = !soundEnabled;
+      soundToggle.textContent = soundEnabled ? '音效: 开 🔊' : '音效: 关 🔇';
+    });
+
+    // 事件绑定
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+
+    // 窗口尺寸发生变化时，小球动态限制在边界内
+    window.addEventListener('resize', () => {
+      if (!isPlaying) return;
+      activeBalls.forEach(ballObj => {
+        const { x, y } = getSafeRandomCoord();
+        ballObj.x = x;
+        ballObj.y = y;
+        ballObj.el.style.left = x + 'px';
+        ballObj.el.style.top = y + 'px';
+      });
+    });
+  </script>
+</body>
+</html>
